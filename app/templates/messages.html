@@ -1,0 +1,18 @@
+<!-- 
+  FILE: app/templates/messages.html (NEW FILE)
+  PURPOSE: Lists all users so you can start a chat with them.
+-->
+{% extends "base.html" %}
+{% block content %}
+<div class="content-section">
+    <h3 class="mb-4">Start a new conversation</h3>
+    <ul class="list-group">
+        {% for user in users %}
+            <a href="{{ url_for('main.private_chat', username=user.username) }}" class="list-group-item list-group-item-action d-flex align-items-center">
+                <img class="rounded-circle account-img me-3" src="{{ url_for('static', filename='profile_pics/' + user.image_file) }}">
+                {{ user.username }}
+            </a>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock content %}
