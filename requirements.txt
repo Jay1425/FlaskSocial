@@ -3,7 +3,10 @@ Flask-SQLAlchemy
 Flask-WTF
 Flask-Login
 Flask-Bcrypt
+Flask-Migrate
 email_validator
 Flask-SocketIO
 eventlet
 Pillow
+psycopg2-binary
+gunicorn
