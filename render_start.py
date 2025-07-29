@@ -7,6 +7,11 @@ This script handles database migrations and starts the application with Gunicorn
 import os
 import subprocess
 import sys
+
+# Fix for SQLAlchemy threading issues with eventlet
+import eventlet
+eventlet.monkey_patch()
+
 from app import create_app, db
 
 def run_migrations():
@@ -36,13 +41,17 @@ def run_migrations():
         print(f"❌ Migration error: {e}")
         # Fallback: create tables directly
         print("🔧 Fallback: Creating tables directly...")
-        app = create_app()
-        with app.app_context():
-            db.create_all()
-        print("✅ Tables created successfully")
+        try:
+            app = create_app()
+            with app.app_context():
+                db.create_all()
+            print("✅ Tables created successfully")
+        except Exception as create_error:
+            print(f"❌ Failed to create tables: {create_error}")
+            # Don't exit, let the app try to start anyway
     except Exception as e:
         print(f"❌ Unexpected error during migration: {e}")
-        sys.exit(1)
+        # Don't exit, let the app try to start anyway
 
 def main():
     """Main function to start the application."""

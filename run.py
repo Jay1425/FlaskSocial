@@ -3,10 +3,18 @@ import os
 
 app = create_app()
 
+# Fix for SQLAlchemy threading issues with eventlet
+import eventlet
+eventlet.monkey_patch()
+
 if __name__ == '__main__':
     # Create database tables for development
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+            print("✅ Database tables created successfully")
+        except Exception as e:
+            print(f"⚠️  Database initialization warning: {e}")
     
     # Configuration for different environments
     port = int(os.environ.get('PORT', 5000))

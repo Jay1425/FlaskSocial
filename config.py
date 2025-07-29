@@ -12,6 +12,15 @@ class Config:
     SQLALCHEMY_DATABASE_URI = DATABASE_URL or 'sqlite:///site.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
+    # SQLAlchemy engine options to fix threading issues
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+        'pool_timeout': 20,
+        'max_overflow': 0,
+        'pool_size': 5
+    }
+    
     # Production settings for Render.com
     if os.environ.get('RENDER'):
         # Force HTTPS in production

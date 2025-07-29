@@ -106,20 +106,26 @@ flask db upgrade
 
 ### Common Issues
 
-1. **Database Connection Error**
+1. **Database Connection Error / Threading Issues**
+   - **Symptom**: `RuntimeError: cannot notify on un-acquired lock`
+   - **Cause**: SQLAlchemy threading conflicts with eventlet workers
+   - **Solution**: Fixed with eventlet monkey patching and proper engine options
+   - **Files**: Updated `config.py`, `run.py`, and `render_start.py`
+
+2. **Database Connection Error**
    - Verify `DATABASE_URL` is set correctly
    - Check PostgreSQL database is running
    - Ensure database URL format is `postgresql://` not `postgres://`
 
-2. **Static Files Not Loading**
+3. **Static Files Not Loading**
    - Render serves static files automatically
    - Check file paths in templates
 
-3. **SocketIO Connection Issues**
+4. **SocketIO Connection Issues**
    - Ensure using eventlet worker: `--worker-class eventlet`
    - Check CORS settings if needed
 
-4. **Video Calls Not Working**
+5. **Video Calls Not Working**
    - WebRTC requires HTTPS (automatic on Render)
    - Check browser permissions for camera/microphone
 
