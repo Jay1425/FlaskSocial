@@ -4,13 +4,15 @@ from PIL import Image
 from flask import render_template, url_for, flash, redirect, request, Blueprint, abort, current_app
 from app import db, bcrypt, socketio
 from app.forms import RegistrationForm, LoginForm, PostForm, UpdateAccountForm
-from app.models import User, Post, Message # Import Message model
+from app.models import User, Post, Message
 from flask_login import login_user, current_user, logout_user, login_required
 from flask_socketio import send, emit, join_room, leave_room
 from sqlalchemy import or_
 
 main = Blueprint('main', __name__)
 user_sids = {}
+call_rooms = {}
+
 # -------------------- ROUTES --------------------
 
 @main.route("/")
@@ -133,9 +135,34 @@ def handle_connect():
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    username = getattr(current_user, 'username', 'User')
+    username = getattr(current_user, 'username', 'User') if current_user.is_authenticated else 'User'
     print(f'{username} disconnected.')
-    emit('message_response', {'message': f'{username} has left the chat.', 'username': 'System'}, broadcast=True)
+    
+    # Handle general chat disconnect
+    if current_user.is_authenticated:
+        emit('message_response', {'message': f'{username} has left the chat.', 'username': 'System'}, broadcast=True)
+    
+    # Handle video call room cleanup
+    sid_to_remove = request.sid
+    rooms_to_clean = []
+    
+    for room, sids in call_rooms.items():
+        if sid_to_remove in sids:
+            rooms_to_clean.append(room)
+    
+    for room in rooms_to_clean:
+        # Remove the disconnected user
+        call_rooms[room].remove(sid_to_remove)
+        
+        # Notify remaining peers
+        if call_rooms[room]:
+            emit('peer_left', {'peer': username}, room=room)
+        
+        # Clean up empty room
+        if not call_rooms[room]:
+            del call_rooms[room]
+            
+        print(f"Cleaned up call room {room} after user {sid_to_remove} disconnected.")
 
 # HELPER FUNCTION to save uploaded pictures
 def save_picture(form_picture):
@@ -250,3 +277,76 @@ def handle_private_message(data):
     }
     emit('new_private_message', payload, room=room)
     print(f"Message sent from {sender.username} to {recipient.username} in room {room}")
+
+# Video call page route
+@main.route("/call/<username>")
+@login_required
+def video_call(username):
+    recipient = User.query.filter_by(username=username).first_or_404()
+    # Users cannot call themselves
+    if recipient == current_user:
+        flash("You cannot start a call with yourself.", "danger")
+        return redirect(url_for('main.messages'))
+    return render_template('video_call.html', title=f'Video Call with {username}', recipient=recipient)
+
+
+# --- SocketIO Event Handlers for WebRTC Signaling (IMPROVED LOGIC) ---
+
+@socketio.on('join_call')
+def on_join_call(data):
+    """
+    A user joins a room for a specific video call.
+    This new logic ensures two peers are connected before starting the offer process.
+    """
+    room = data['room']
+    join_room(room)
+    
+    # Add peer to our room state
+    if room not in call_rooms:
+        call_rooms[room] = []
+    call_rooms[room].append(request.sid)
+
+    print(f"{current_user.username} (SID: {request.sid}) has joined the call room: {room}")
+
+    # When two peers have joined, signal them to get ready.
+    if len(call_rooms[room]) == 2:
+        # Emit to both peers that they are connected and can start preparing.
+        emit('peers_connected', {'peer1': call_rooms[room][0], 'peer2': call_rooms[room][1]}, room=room)
+        print(f"Two peers connected in room {room}. Signalling them to prepare.")
+
+@socketio.on('webrtc_signal')
+def on_webrtc_signal(data):
+    """
+    Generic handler to relay any WebRTC signal (offer, answer, ice-candidate)
+    to the other peer in the room.
+    """
+    room = data['room']
+    signal = data['signal']
+    
+    # Find the other peer's SID
+    if room in call_rooms and len(call_rooms[room]) == 2:
+        peer1_sid, peer2_sid = call_rooms[room]
+        target_sid = peer2_sid if request.sid == peer1_sid else peer1_sid
+        emit('webrtc_signal', signal, room=target_sid)
+        # print(f"Relaying signal from {request.sid} to {target_sid} in room {room}")
+
+@socketio.on('leave_call')
+def on_leave_call(data):
+    """A user intentionally leaves a video call room."""
+    room = data['room']
+    leave_room(room)
+    
+    # Notify the other peer that the user has left
+    if room in call_rooms:
+        emit('peer_left', {'peer': current_user.username}, room=room, skip_sid=request.sid)
+        # Clean up the room state
+        if room in call_rooms:
+            del call_rooms[room]
+
+    print(f"{current_user.username} has left the call room: {room}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    username = getattr(current_user, 'username', 'User')
+    print(f'{username} disconnected.')
+    emit('message_response', {'message': f'{username} has left the chat.', 'username': 'System'}, broadcast=True)

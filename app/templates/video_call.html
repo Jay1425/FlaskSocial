@@ -1,0 +1,200 @@
+<!-- 
+  FILE: app/templates/video_call.html (FIXED)
+  PURPOSE: The UI and client-side logic for the video call.
+-->
+{% extends "base.html" %}
+{% block content %}
+<style>
+    #video-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        grid-auto-rows: auto;
+        gap: 10px;
+        justify-content: center;
+    }
+    video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border: 2px solid #343a40;
+        border-radius: 5px;
+        background-color: #000;
+    }
+    #call-controls {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0, 0, 0, 0.5);
+        padding: 10px 20px;
+        border-radius: 20px;
+        display: flex;
+        gap: 15px;
+        z-index: 100;
+    }
+</style>
+
+<div class="content-section">
+    <h3 id="call-status" class="text-center mb-4">Calling {{ recipient.username }}...</h3>
+    <div id="video-grid">
+        <video id="local-video" autoplay muted playsinline></video>
+        <video id="remote-video" autoplay playsinline></video>
+    </div>
+    <div id="call-controls">
+        <button id="mic-btn" class="btn btn-secondary">Mute</button>
+        <button id="video-btn" class="btn btn-secondary">Stop Video</button>
+        <button id="hangup-btn" class="btn btn-danger">Hang Up</button>
+    </div>
+</div>
+
+<script type="text/javascript">
+document.addEventListener('DOMContentLoaded', () => {
+    const socket = io();
+    const currentUser = "{{ current_user.username }}";
+    const recipientUser = "{{ recipient.username }}";
+    const room = [currentUser, recipientUser].sort().join('-');
+
+    const localVideo = document.getElementById('local-video');
+    const remoteVideo = document.getElementById('remote-video');
+    const callStatus = document.getElementById('call-status');
+
+    let localStream;
+    let peerConnection;
+    let isCaller = false;
+
+    const servers = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    };
+
+    // --- Start the call flow ---
+    const startCall = async () => {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            localVideo.srcObject = localStream;
+            socket.emit('join_call', { room: room });
+        } catch (error) {
+            console.error('Error accessing media devices.', error);
+            callStatus.innerText = 'Failed to access camera/mic. Please grant permissions.';
+        }
+    };
+    startCall();
+
+    // --- SocketIO Listeners for Signaling ---
+    socket.on('peer_joined', async () => {
+        callStatus.innerText = `Connecting to ${recipientUser}...`;
+        isCaller = true;
+        await createPeerConnection();
+        try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('offer', { offer: peerConnection.localDescription, room: room });
+        } catch (error) {
+            console.error('Error creating offer:', error);
+        }
+    });
+
+    socket.on('offer', async (data) => {
+        if (!isCaller) {
+            callStatus.innerText = 'Incoming call...';
+            await createPeerConnection();
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                socket.emit('answer', { answer: peerConnection.localDescription, room: room });
+            } catch (error) {
+                console.error('Error handling offer and creating answer:', error);
+            }
+        }
+    });
+
+    socket.on('answer', async (data) => {
+        try {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            callStatus.innerText = 'Call established.';
+        } catch (error) {
+            console.error('Error setting remote description from answer:', error);
+        }
+    });
+
+    socket.on('ice-candidate', async (data) => {
+        try {
+            if (data.candidate) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+            }
+        } catch (error) {
+            console.error('Error adding received ICE candidate', error);
+        }
+    });
+
+    socket.on('peer_left', () => {
+        callStatus.innerText = `${recipientUser} has left the call.`;
+        hangUp();
+    });
+
+    // --- WebRTC Logic ---
+    const createPeerConnection = async () => {
+        peerConnection = new RTCPeerConnection(servers);
+
+        peerConnection.onicecandidate = event => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', { candidate: event.candidate, room: room });
+            }
+        };
+
+        peerConnection.ontrack = event => {
+            if (remoteVideo.srcObject !== event.streams[0]) {
+                remoteVideo.srcObject = event.streams[0];
+                callStatus.innerText = 'Call established.';
+            }
+        };
+
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+    };
+
+    // --- Call Controls ---
+    const hangUp = () => {
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
+        socket.emit('leave_call', { room: room });
+        window.location.href = "{{ url_for('main.private_chat', username=recipientUser) }}";
+    };
+
+    document.getElementById('hangup-btn').addEventListener('click', hangUp);
+
+    document.getElementById('mic-btn').addEventListener('click', () => {
+        const audioTrack = localStream.getTracks().find(track => track.kind === 'audio');
+        if (audioTrack.enabled) {
+            audioTrack.enabled = false;
+            document.getElementById('mic-btn').innerText = 'Unmute';
+        } else {
+            audioTrack.enabled = true;
+            document.getElementById('mic-btn').innerText = 'Mute';
+        }
+    });
+
+    document.getElementById('video-btn').addEventListener('click', () => {
+        const videoTrack = localStream.getTracks().find(track => track.kind === 'video');
+        if (videoTrack.enabled) {
+            videoTrack.enabled = false;
+            document.getElementById('video-btn').innerText = 'Start Video';
+        } else {
+            videoTrack.enabled = true;
+            document.getElementById('video-btn').innerText = 'Stop Video';
+        }
+    });
+
+    window.addEventListener('beforeunload', hangUp);
+});
+</script>
+{% endblock content %}

@@ -1,13 +1,22 @@
 <!-- 
-  FILE: app/templates/private_chat.html (NEW FILE)
-  PURPOSE: The UI and client-side logic for the private chat window.
+  FILE: app/templates/private_chat.html (FINAL MERGED VERSION)
+  PURPOSE: Private chat window with Video Call and real-time messaging via Socket.IO.
 -->
 {% extends "base.html" %}
 {% block content %}
 <div class="content-section">
-    <h3 class="mb-4">Chat with {{ recipient.username }}</h3>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="mb-0">Chat with {{ recipient.username }}</h3>
+        <!-- Video Call Button -->
+        <a href="{{ url_for('main.video_call', username=recipient.username) }}" class="btn btn-success">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-camera-video-fill" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M0 5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-1.406.913l-3.11-1.382A2 2 0 0 1 9.5 13H2a2 2 0 0 1-2-2V5z"/>
+            </svg>
+            Video Call
+        </a>
+    </div>
+
     <div id="message-container" class="border p-3 mb-3" style="height: 400px; overflow-y: scroll; display: flex; flex-direction: column;">
-        <!-- Message history is loaded here -->
         {% for message in messages %}
             <div class="p-2 my-1 rounded {% if message.author == current_user %}bg-primary text-white ms-auto{% else %}bg-light text-dark me-auto{% endif %}" style="max-width: 75%;">
                 <strong>{% if message.author == current_user %}You{% else %}{{ message.author.username }}{% endif %}</strong>
@@ -16,6 +25,7 @@
             </div>
         {% endfor %}
     </div>
+
     <form id="message-form">
         <div class="input-group">
             <input type="text" id="message-input" class="form-control" placeholder="Enter your message..." autocomplete="off">
@@ -24,28 +34,29 @@
     </form>
 </div>
 
+<!-- Private Chat JavaScript -->
 <script type="text/javascript" charset="utf-8">
     document.addEventListener('DOMContentLoaded', (event) => {
         const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port);
         const currentUser = "{{ current_user.username }}";
         const recipientUser = "{{ recipient.username }}";
-        
+
         // Create a unique, sorted room name for the two users
         const room = [currentUser, recipientUser].sort().join('-');
 
         socket.on('connect', function() {
-            console.log('Websocket connected!');
-            socket.emit('join', {username: currentUser, room: room});
+            console.log('WebSocket connected!');
+            socket.emit('join', { username: currentUser, room: room });
         });
 
         window.addEventListener('beforeunload', function() {
-            socket.emit('leave', {username: currentUser, room: room});
+            socket.emit('leave', { username: currentUser, room: room });
         });
 
         socket.on('new_private_message', function(data) {
             const messageContainer = document.getElementById('message-container');
             const messageDiv = document.createElement('div');
-            
+
             let alignmentClass = 'me-auto';
             let backgroundClass = 'bg-light text-dark';
             let senderName = `<strong>${data.sender}</strong>`;
@@ -58,8 +69,12 @@
 
             messageDiv.className = `p-2 my-1 rounded ${backgroundClass} ${alignmentClass}`;
             messageDiv.style.maxWidth = '75%';
-            messageDiv.innerHTML = `${senderName}<p class="mb-0">${data.message}</p><small class="text-muted-light float-end">${data.timestamp}</small>`;
-            
+            messageDiv.innerHTML = `
+                ${senderName}
+                <p class="mb-0">${data.message}</p>
+                <small class="text-muted-light float-end">${data.timestamp}</small>
+            `;
+
             messageContainer.appendChild(messageDiv);
             messageContainer.scrollTop = messageContainer.scrollHeight;
         });
