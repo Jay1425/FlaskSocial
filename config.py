@@ -1,7 +1,9 @@
 import os
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'vb69n83n89sv49es98e59889e9n6g'
+    if os.environ.get('FLASK_ENV') == 'production' and not os.environ.get('SECRET_KEY'):
+        raise RuntimeError('SECRET_KEY must be configured in production')
+    SECRET_KEY = os.environ.get("SECRET_KEY") or os.urandom(32)
     
     # Database configuration for Render.com production
     DATABASE_URL = os.environ.get('DATABASE_URL')

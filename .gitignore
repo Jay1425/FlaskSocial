@@ -4,3 +4,7 @@ __pycache__/
 migrations/
 instance/
 *.db
+.env
+.env.*
+!.env.example
+*.py[cod]
